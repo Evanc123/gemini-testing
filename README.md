@@ -14,6 +14,14 @@ The project uses UV for dependency management. To add new dependencies:
 uv add package_name
 ```
 
+## Main flow
+
+Run
+```bash
+uv run main.py
+```
+to run through the main flow
+
 ## Jupyter
 
 Start a jupyter session with
