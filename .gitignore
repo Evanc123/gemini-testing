@@ -10,6 +10,5 @@ wheels/
 .venv
 
 .env
-.cached_images/
 
-.cached_images/*
+cached_images/

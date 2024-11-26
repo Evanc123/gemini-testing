@@ -56,13 +56,17 @@ def get_cached_images(pdf_path: str, cache_dir: str = "cached_images") -> list:
     cache_path = Path(cache_dir)
     cache_path.mkdir(exist_ok=True)
 
+    # Create PDF-specific subdirectory
+    pdf_name = Path(pdf_path).stem
+    pdf_cache_path = cache_path / pdf_name
+    pdf_cache_path.mkdir(exist_ok=True)
+
     # Generate a unique cache key based on PDF path and modification time
     pdf_stat = os.stat(pdf_path)
     pdf_modified_time = pdf_stat.st_mtime
-    pdf_name = Path(pdf_path).stem
 
     # Check if cached images exist and are up to date
-    cache_info_file = cache_path / f"{pdf_name}_cache_info.json"
+    cache_info_file = pdf_cache_path / "cache_info.json"
     if cache_info_file.exists():
         with open(cache_info_file, "r") as f:
             cache_info = json.load(f)
@@ -72,7 +76,7 @@ def get_cached_images(pdf_path: str, cache_dir: str = "cached_images") -> list:
 
                 cached_images = []
                 for i in range(cache_info["num_pages"]):
-                    image_path = cache_path / f"{pdf_name}_page_{i+1}.jpg"
+                    image_path = pdf_cache_path / f"page_{i+1}.jpg"
                     if image_path.exists():
                         cached_images.append(Image.open(image_path))
                 print(f"Successfully loaded {len(cached_images)} cached images")
@@ -85,7 +89,7 @@ def get_cached_images(pdf_path: str, cache_dir: str = "cached_images") -> list:
     # Cache the newly converted images
     print("Caching converted images to disk...")
     for i, page in enumerate(pages):
-        image_path = cache_path / f"{pdf_name}_page_{i+1}.jpg"
+        image_path = pdf_cache_path / f"page_{i+1}.jpg"
         page.save(image_path, "JPEG")
         print(f"Caching page {i + 1}/{len(pages)}", end="\r")
 
@@ -99,7 +103,7 @@ def get_cached_images(pdf_path: str, cache_dir: str = "cached_images") -> list:
 
 
 def get_or_upload_files(
-    pages, cache_dir: str = "cached_images", max_pages: int = 10
+    pages, pdf_path: str, cache_dir: str = "cached_images", max_pages: int = 10
 ) -> list:
     """
     Get or upload files to Gemini, using cached filenames if they exist and are valid.
@@ -108,8 +112,13 @@ def get_or_upload_files(
     cache_path = Path(cache_dir)
     cache_path.mkdir(exist_ok=True)
 
+    # Create PDF-specific subdirectory
+    pdf_name = Path(pdf_path).stem
+    pdf_cache_path = cache_path / pdf_name
+    pdf_cache_path.mkdir(exist_ok=True)
+
     # Check for cached filenames
-    filename_cache = cache_path / "uploaded_filenames.json"
+    filename_cache = pdf_cache_path / "uploaded_filenames.json"
     if filename_cache.exists():
         print("Found cached upload filenames, verifying they still exist...")
         with open(filename_cache, "r") as f:
@@ -147,12 +156,12 @@ def get_or_upload_files(
 
 
 # Get the pages from cache or convert PDF
-pdf_path = "./data/manual_130_numbered.pdf"
+pdf_path = "./data/manual_130.pdf"
 pages = get_cached_images(pdf_path)
 
-MAX_PAGES = 130
+MAX_PAGES = len(pages)
 # Get or upload files to Gemini
-uploaded_file_names = get_or_upload_files(pages, max_pages=MAX_PAGES)
+uploaded_file_names = get_or_upload_files(pages, pdf_path=pdf_path, max_pages=MAX_PAGES)
 
 print("Creating interleaved content with page numbers...")
 uploaded_files = []
@@ -171,6 +180,8 @@ system_instruction = (
     "Ensure your answer is detailed and directly references relevant instructions from the manual. "
     "The page number is provided before each image with the text 'ACTUAL PAGE NUMBER: X'."
 )
+
+# skipping for now, running into some sort of api rate limit
 # Cache context
 # print("Creating cache context...")
 # cache = caching.CachedContent.create(
@@ -195,10 +206,8 @@ model = genai.GenerativeModel(
 )
 print("Model initialized successfully")
 
-print(
-    "\nGenerating response for query about 4 speed manual transmission engine code..."
-)
-prompt = "QUESTION: What are the contents of page 5?"
+prompt = "QUESTION: Describe the diagram of page 23"
+print(f"\nGenerating response for query: {prompt}")
 response = model.generate_content(
     contents=uploaded_files + [prompt],
     generation_config=genai.GenerationConfig(
