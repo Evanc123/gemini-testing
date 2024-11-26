@@ -150,7 +150,7 @@ def get_or_upload_files(
 pdf_path = "./data/manual_130_numbered.pdf"
 pages = get_cached_images(pdf_path)
 
-MAX_PAGES = 20
+MAX_PAGES = 130
 # Get or upload files to Gemini
 uploaded_file_names = get_or_upload_files(pages, max_pages=MAX_PAGES)
 
