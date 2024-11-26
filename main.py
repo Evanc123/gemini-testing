@@ -164,15 +164,15 @@ MAX_PAGES = len(pages)
 uploaded_file_names = get_or_upload_files(pages, pdf_path=pdf_path, max_pages=MAX_PAGES)
 
 print("Creating interleaved content with page numbers...")
-uploaded_files = []
+pdf_content_array = []
 for i, filename in enumerate(uploaded_file_names):
     # Add page number text
     page_num = i + 1
-    uploaded_files.append(f"ACTUAL PAGE NUMBER: {page_num}")
+    pdf_content_array.append(f"ACTUAL PAGE NUMBER: {page_num}")
     # Add the image file
-    uploaded_files.append(genai.get_file(filename))
+    pdf_content_array.append(genai.get_file(filename))
 
-print(f"Created content array with {len(uploaded_files)} items (text + images)")
+print(f"Created content array with {len(pdf_content_array)} items (text + images)")
 
 system_instruction = (
     "You are an expert in machine repair using manuals, and your job is to answer "
@@ -209,7 +209,7 @@ print("Model initialized successfully")
 prompt = "QUESTION: Describe the diagram of page 23"
 print(f"\nGenerating response for query: {prompt}")
 response = model.generate_content(
-    contents=uploaded_files + [prompt],
+    contents=pdf_content_array + [prompt],
     generation_config=genai.GenerationConfig(
         response_mime_type="text/plain",
         # response_mime_type="application/json", response_schema=Response
