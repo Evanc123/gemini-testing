@@ -4,32 +4,9 @@ from pdf2image import convert_from_path
 import tempfile
 import datetime
 import time
-import pandas as pd
-import typing_extensions as typing
-from typing import Literal
 import os
 import json
-import matplotlib.pyplot as plt
-import math
 from pathlib import Path
-
-print("Starting manual processing application...")
-
-
-class InformationSegment(typing.TypedDict):
-    contributing_information: str
-    contributing_information_type: Literal["text", "diagram", "table"]
-
-
-class Page(typing.TypedDict):
-    manual_page_num: str
-    information_segements: list[InformationSegment]
-
-
-class Response(typing.TypedDict):
-    relevant_pages: list[Page]
-    query_answer: str
-
 
 # Fetch the GOOGLE_API_KEY from environment variables
 google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -155,103 +132,191 @@ def get_or_upload_files(
     return uploaded_names
 
 
-# Get the pages from cache or convert PDF
-pdf_path = "./data/manual_130.pdf"
-pages = get_cached_images(pdf_path)
+QUESTIONS = [
+    {
+        "id": "1",
+        "query": "Where can I find information on towing?",
+        "ground_truth_location": "page 27, 28",
+        "ground_truth_answer": "N/A",
+    },
+    {
+        "id": "2a",
+        "query": "What are the steps to adjusting the hydraulic valve lifters?",
+        "ground_truth_location": "page 133",
+        "ground_truth_answer": """- back out adjusting screws in rocker arms until ball shaped end is flush with surface of arm
+- turn crankshaft until cylinder No. 1 is at TDC
+  - mark on rotor must be in line with mark on distributor housing
+- turn adjusting screws in until they just touch valve stems
+- turn adjusting screws 2 turns clockwise and tighen lock nuts
+- rotate crankshaft 180° clockwise and adjust next cylinder
+- repeat until all cylinders are adjusted""",
+    },
+    {
+        "id": "2b",
+        "query": "Show me the exploded schematic for the drive belt cover.",
+        "ground_truth_location": "page 65",
+        "ground_truth_answer": "N/A",
+    },
+    {
+        "id": "3",
+        "query": "What is the part number for a valve adjusting disc with thickness 3.40?",
+        "ground_truth_location": "page 114",
+        "ground_truth_answer": "056 109 563",
+    },
+]
 
-MAX_PAGES = len(pages)
-# Get or upload files to Gemini
-uploaded_file_names = get_or_upload_files(pages, pdf_path=pdf_path, max_pages=MAX_PAGES)
-
-print("Creating interleaved content with page numbers...")
-pdf_content_array = []
-for i, filename in enumerate(uploaded_file_names):
-    # Add page number text
-    page_num = i + 1
-    pdf_content_array.append(f"ACTUAL PAGE NUMBER: {page_num}")
-    # Add the image file
-    pdf_content_array.append(genai.get_file(filename))
-
-print(f"Created content array with {len(pdf_content_array)} items (text + images)")
-
-system_instruction = (
-    "You are an expert in machine repair using manuals, and your job is to answer "
-    "the user's query based on the images of machine manual pages you have access to. "
-    "Ensure your answer is detailed and directly references relevant instructions from the manual. "
-    "The page number is provided before each image with the text 'ACTUAL PAGE NUMBER: X'."
-)
-
-# skipping for now, running into some sort of api rate limit
-# Cache context
-# print("Creating cache context...")
-# cache = caching.CachedContent.create(
-#     model="models/gemini-1.5-pro-002",
-#     display_name="manual 130",
-#     system_instruction=(
-#         "You are an expert in machine repair using manuals, and your job is to answer "
-#         "the user's query based on the images of machine manual pages you have access to. "
-#         "Ensure your answer is detailed and directly references relevant instructions from the manual. "
-#         "The page number is provided before each image with the text 'ACTUAL PAGE NUMBER: X'."
-#     ),
-#     contents=uploaded_files,
-#     ttl=datetime.timedelta(hours=2),
-# )
-# print("Cache context created successfully")
-
-# Construct model that uses caching
-print("Initializing Gemini model...")
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-pro-002",
-    system_instruction=system_instruction,
-)
-print("Model initialized successfully")
-
-prompt = "QUESTION: Describe the diagram of page 23"
-print(f"\nGenerating response for query: {prompt}")
-response = model.generate_content(
-    contents=pdf_content_array + [prompt],
-    generation_config=genai.GenerationConfig(
-        response_mime_type="text/plain",
-        # response_mime_type="application/json", response_schema=Response
-    ),
-)
-print("Response generated successfully")
-print(response)
+NUM_TRIALS = 5
 
 
-def extract_page_numbers(response):
-    """
-    Extracts page numbers from the response.
-
-    Args:
-        response (GenerateContentResponse): The response containing relevant page numbers.
-
-    Returns:
-        list: A list of zero-based page indexes.
-    """
-    try:
-        print("Extracting page numbers from response...")
-        # Extract the JSON string from the response content
-        json_string = response.candidates[0].content.parts[0].text
-        response_data = json.loads(json_string)
-
-        # Extract relevant pages
-        relevant_pages = response_data.get("relevant_pages", [])
-        print(f"Found {len(relevant_pages)} relevant pages")
-
-        # Convert manual page numbers to zero-based indexes
-        page_numbers = [int(page["manual_page_num"]) - 1 for page in relevant_pages]
-        answer = response_data.get("query_answer")
-        return page_numbers, answer
-    except (KeyError, json.JSONDecodeError) as e:
-        print(f"Error extracting page numbers: {e}")
-        return [], None
+def print_result(question: dict, trial: int, chain_of_thought: str, answer: str):
+    """Print a single trial result in a readable format"""
+    print(f"\nQuestion {question['id']} (Trial {trial}):")
+    print("-" * 40)
+    print(f"Query: {question['query']}")
+    print(f"Ground Truth Location: {question['ground_truth_location']}")
+    print(f"Ground Truth Answer: {question['ground_truth_answer']}")
+    print("\nModel Response:")
+    print("Chain of Thought:")
+    print(chain_of_thought)
+    print("\nFinal Answer:")
+    print(answer)
+    print("-" * 40)
 
 
-# page_nums, answer = extract_page_numbers(response)
-# print("\nAnswer from the manual:")
-# print("-" * 80)
-# print(answer)
-# print("-" * 80)
-# print("\nDisplaying relevant pages...")
-# display_selected_pages(pages, page_nums)
+def save_results(results: list, output_file: str = "model_comparison_results"):
+    """Save the results to both text and JSON formats"""
+    # Save as formatted text
+    with open(f"{output_file}.txt", "w") as f:
+        f.write("Model Comparison Results\n")
+        f.write("=" * 80 + "\n\n")
+
+        for question in QUESTIONS:
+            f.write(f"Question {question['id']}: {question['query']}\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"Ground Truth Location: {question['ground_truth_location']}\n")
+            f.write(f"Ground Truth Answer: {question['ground_truth_answer']}\n\n")
+
+            # Write model responses for this question
+            question_results = [
+                r for r in results if r["question_id"] == question["id"]
+            ]
+            for i, result in enumerate(question_results, 1):
+                f.write(f"Trial {i}:\n")
+                f.write("Chain of Thought:\n")
+                f.write(f"{result['chain_of_thought']}\n\n")
+                f.write("Final Answer:\n")
+                f.write(f"{result['answer']}\n\n")
+
+            f.write("=" * 80 + "\n\n")
+
+    # Save as JSON
+    json_output = {"questions": QUESTIONS, "trials": results}
+    with open(f"{output_file}.json", "w") as f:
+        json.dump(json_output, f, indent=2)
+
+
+def main():
+    # Get the pages from cache or convert PDF
+    pdf_path = "./data/manual_130.pdf"
+    pages = get_cached_images(pdf_path)
+
+    MAX_PAGES = len(pages)  # Allow all pages now
+    # Get or upload files to Gemini
+    uploaded_file_names = get_or_upload_files(
+        pages, pdf_path=pdf_path, max_pages=MAX_PAGES
+    )
+
+    print("Creating interleaved content with page numbers...")
+    uploaded_files = []
+    for i, filename in enumerate(uploaded_file_names):
+        # Add page number text
+        page_num = i + 1
+        uploaded_files.append(f"START OF ACTUAL PAGE NUMBER: {page_num}")
+        # Add the image file
+        uploaded_files.append(genai.get_file(filename))
+        uploaded_files.append(f"END OF ACTUAL PAGE NUMBER: {page_num}\nBREAK\n")
+
+    file_preamble = """
+    Please answer questions with respect to the "ACTUAL_PAGE_NUMBER" indices, rather than the page numbers / section numbers in the manual itself. We *have* to use the actual page numbers because the manual itself does not have consistent page numbering.
+
+    For questions, please answer with the page numbers where the actual answers occurs, rather than the section numbers referenced in the manual's table of contents for the question. 
+"""
+
+    print(f"Created content array with {len(uploaded_files)} items (text + images)")
+
+    # Initialize model
+    print("Initializing Gemini model...")
+    model = genai.GenerativeModel(model_name="gemini-1.5-pro-002")
+
+    # Run trials for each question
+    results = []
+    for question in QUESTIONS:
+        print(f"\nProcessing question {question['id']}: {question['query']}")
+        for trial in range(NUM_TRIALS):
+            print(f"  Trial {trial + 1}/{NUM_TRIALS}", end="\r")
+            try:
+                prompt = f"""Based on the manual pages provided, answer the following question: {question['query']}
+
+Please provide your response in two parts:
+1. Page scan thoughts: Explain your reasoning process, including which pages you looked at and why. Please exhaustively check every page in the input, and talk about your thoughts about each set of 10 pages. Like, I will first look at 1-10. I see nothing related to my query here. I now processed 11-20, and so on for all of the input.
+2. Chain of Thought: For the given pages, extract the page contents. If the answer is in a table or diagram, extract the entire table / diagram, so that you can clearly see the data you want to extract.
+2(a): [Optional] Error Correction: If you made a mistake, or need to look at a different page, use this space to look at that page and extract data as needed. If no errors are detected, write "No errors detected".
+3. Final Answer: Give the precise answer to the question, as well as the pages referenced (it is possible that the answer is simply pages).
+
+Format your response exactly like this:
+Chain of Thought:
+[your detailed reasoning here]
+
+Final Answer:
+[your precise answer here]"""
+
+                response = model.generate_content(
+                    contents=[file_preamble] + uploaded_files + [prompt]
+                )
+
+                if response:
+                    text = response.text
+                    # Split the response into chain of thought and answer
+                    try:
+                        parts = text.split("Final Answer:")
+                        if len(parts) != 2:
+                            print(f"\nUnexpected response format: {text}")
+                            continue
+
+                        chain_of_thought = (
+                            parts[0].replace("Chain of Thought:", "").strip()
+                        )
+                        answer = parts[1].strip()
+
+                        result = {
+                            "question_id": question["id"],
+                            "trial": trial + 1,
+                            "chain_of_thought": chain_of_thought,
+                            "answer": answer,
+                            "timestamp": datetime.datetime.now().isoformat(),
+                        }
+                        results.append(result)
+                        print_result(question, trial + 1, chain_of_thought, answer)
+                    except Exception as e:
+                        print(
+                            f"\nError processing response for question {question['id']}, trial {trial + 1}: {e}"
+                        )
+                        print(f"Raw response was: {text}")
+            except Exception as e:
+                print(
+                    f"\nError generating content for question {question['id']}, trial {trial + 1}: {e}"
+                )
+            time.sleep(2)  # Delay between requests
+
+    # Save results
+    if results:
+        save_results(results)
+        print(
+            "\nResults have been saved to model_comparison_results.txt and model_comparison_results.json"
+        )
+    else:
+        print("\nNo valid results were collected to save")
+
+
+if __name__ == "__main__":
+    main()
