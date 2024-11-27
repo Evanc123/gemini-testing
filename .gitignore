@@ -12,3 +12,4 @@ wheels/
 .env
 
 cached_images/
+.DS_Store

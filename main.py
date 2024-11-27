@@ -148,7 +148,7 @@ QUESTIONS = [
     {
         "id": "1",
         "query": "Where can I find information on towing?",
-        "ground_truth_location": "page 27, 28",
+        "ground_truth_location": "page 28, 29",
         "ground_truth_answer": "N/A",
     },
     {
@@ -166,13 +166,13 @@ QUESTIONS = [
     {
         "id": "2b",
         "query": "Show me the exploded schematic for the drive belt cover.",
-        "ground_truth_location": "page 65",
+        "ground_truth_location": "page 66",
         "ground_truth_answer": "N/A",
     },
     {
         "id": "3",
         "query": "What is the part number for a valve adjusting disc with thickness 3.40?",
-        "ground_truth_location": "page 114",
+        "ground_truth_location": "page 115",
         "ground_truth_answer": "056 109 563",
     },
 ]
@@ -215,14 +215,38 @@ def get_experiment_config() -> dict:
     return config
 
 
+def log_experiment(config: dict, experiment_hash: str):
+    """Log experiment details to a central log file"""
+    log_dir = "experiments"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "experiment_log.jsonl")
+
+    log_entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "experiment_hash": experiment_hash,
+        "config": config,
+        "output_files": [
+            f"experiments/{experiment_hash}/model_comparison_results.txt",
+            f"experiments/{experiment_hash}/model_comparison_results.json",
+        ],
+    }
+
+    with open(log_file, "a") as f:
+        f.write(json.dumps(log_entry) + "\n")
+
+
 def save_results(results: list, output_file: str = "model_comparison_results"):
     """Save the results to both text and JSON formats with experiment config"""
     # Get experiment config and hash
     config = get_experiment_config()
     experiment_hash = generate_experiment_hash(config)
 
-    # Add hash to filenames
-    output_file = f"{output_file}_{experiment_hash}"
+    # Create experiment directory
+    experiment_dir = os.path.join("experiments", experiment_hash)
+    os.makedirs(experiment_dir, exist_ok=True)
+
+    # Update output paths
+    output_file = os.path.join(experiment_dir, output_file)
 
     # Save as formatted text
     with open(f"{output_file}.txt", "w") as f:
@@ -265,6 +289,11 @@ def save_results(results: list, output_file: str = "model_comparison_results"):
     }
     with open(f"{output_file}.json", "w") as f:
         json.dump(json_output, f, indent=2)
+
+    # Log the experiment
+    log_experiment(config, experiment_hash)
+
+    return experiment_hash, experiment_dir
 
 
 example_1 = """
@@ -342,7 +371,7 @@ def main():
     global pdf_path, MAX_PAGES  # Make these accessible to get_experiment_config
 
     # Get the pages from cache or convert PDF
-    pdf_path = "./data/manual_130.pdf"
+    pdf_path = "./data/manual_130_numbered.pdf"
     pages = get_cached_images(pdf_path)
 
     MAX_PAGES = len(pages)  # Allow all pages now
@@ -455,12 +484,15 @@ Here is an example of chain of thought and a final answer for reference:
                 )
             time.sleep(2)  # Delay between requests
 
-    # Save results
+    # Save results with updated paths
     if results:
-        save_results(results)
+        experiment_hash, experiment_dir = save_results(results)
         print(f"\nResults have been saved with experiment hash {experiment_hash}")
-        print(f"Files: model_comparison_results_{experiment_hash}.txt")
-        print(f"       model_comparison_results_{experiment_hash}.json")
+        print(f"Experiment directory: {experiment_dir}")
+        print("Files saved:")
+        print(f"  - {os.path.join(experiment_dir, 'model_comparison_results.txt')}")
+        print(f"  - {os.path.join(experiment_dir, 'model_comparison_results.json')}")
+        print(f"Experiment logged to: experiments/experiment_log.jsonl")
     else:
         print("\nNo valid results were collected to save")
 
