@@ -135,8 +135,8 @@ def get_or_upload_files(
 QUESTIONS = [
     # {
     #     "id": "2",
-    #     "query": "Extract the entire table at page 44",
-    #     "ground_truth_location": "page 44",
+    #     "query": "Where can I find information on the Sunroof?",
+    #     "ground_truth_location": "page 115",
     #     "ground_truth_answer": "N/A",
     # },
     # {
@@ -333,7 +333,7 @@ Pages 121-130: Continue with engine cylinder head information, including checkin
 Pages 131-136: There seems to be nothing related to my query in this range either.
 ----
 
-2. Chain of Thought
+2. Extraction
 After looking through all pages, the idle CO content looks to be on page 44. It looks like this data appears in a table, so I'll extract the table first.
 
 | **Technical Data/Specified Values** | **Details**                                      |
@@ -356,14 +356,81 @@ With the table extracted, I can see that the idle CO content is 0.7 ± 0.4 Vol. 
 
 3. Error Correction
 I'll double check the pages that could be relevant, but it looks like this should be the correct answer. I just double checked the values in the table,
-and it looks like 0.7 ± 0.4 Vol. % is the correct value.
+and it looks like 0.7 ± 0.4 Vol. % is the correct value. It looks like I only used page 44 for this, so I'll just return that.
 
 4. Final Answer
+<final-answer>
 The idle CO content is 0.7 ± 0.4 Vol. %.
+</final-answer>
 <page-references>
 44
 </page-references>
 </example-1>
+"""
+
+example_2 = """
+<example-2>
+Query: Where can I find information on the Sunroof?
+
+1. Page Scan
+
+It looks like there are 136 pages in total, so I'll sweep through them by 10s.
+
+Pages 1-10: These pages are the cover, title page, copyright, table of contents, and foreword. No sunroof information.
+
+Pages 11-20: The index on pages 9-18 and continuation on 20 doesn't list "sunroof" explicitly, but I'll keep an eye out for related terms like "roof" or "top."
+
+Pages 21-30: These pages cover general information, engine identification and some specifications. No mention of the sunroof.
+
+Pages 31-40: These pages continue with engine removal and installation procedures. No sunroof information here.
+
+Pages 41-50: These pages continue covering engine-related procedures. No sunroof information.
+
+Pages 51-60: These pages deal with air-cooled engine components. No sunroof information.
+
+Pages 61-70: Still working through the air-cooled engine section and the diesel engine section. Nothing on the sunroof.
+
+Pages 71-80: More on engine crankshaft and crankcase, now including water-cooled engines. Still no sunroof.
+
+Pages 81-90: Still engine-related content, but nothing about the sunroof.
+
+Pages 91-100: These pages continue on crankshaft/crankcase information. Nothing related to the sunroof is present.
+
+Pages 101-110: These pages cover crankshaft/crankcase information, including replacing procedures. No sunroof details.
+
+Pages 111-120: Cylinder head and valve drive information is covered in these pages.  Still no mention of the sunroof.
+
+Pages 121-130: More information on cylinder heads and pushrod tubes. No sunroof information.
+
+Pages 131-140: Final pages related to cylinder heads.  No sunroof information is present.
+----
+
+Pages 4-5 Table of Contents: It contains information on the body which contains an entry for Sunroof. This entry on Sunroof covers pages 62 to 63.
+
+Pages 62-63: No information on the sunroof.
+
+Pages 55-64: I'll examine this range more closely since the table of contents can be inaccurate due to the non-sequential page numbering. Pages 58 and 59 have information on the sunroof, labelled as "Sunroof."
+
+
+2. Extraction 
+
+Page 4 shows "Body" has a sub-section for "Sunroof" listed as pages 62-63.
+
+Page 58 and 59: Show the title of Sunroof.
+
+3. Error Correction
+
+Page 4 is the index of the manual, so it in and of itself is not relevant. Also, the index shows that the relavant pages are 62-63, but after rechecking pages 50-60, I found information on the sunroof on pages 58 and 59, titled "Sunroof."
+
+4. Final Answer
+
+4. Final Answer
+<final-answer>
+Information on the sunroof can be found on pages 58 and 59 of the manual.
+</final-answer>
+<page-references>
+58, 59
+</page-references>
 """
 
 
@@ -371,7 +438,7 @@ def main():
     global pdf_path, MAX_PAGES  # Make these accessible to get_experiment_config
 
     # Get the pages from cache or convert PDF
-    pdf_path = "./data/manual_130_numbered.pdf"
+    pdf_path = "./data/manual_130.pdf"
     pages = get_cached_images(pdf_path)
 
     MAX_PAGES = len(pages)  # Allow all pages now
@@ -422,28 +489,36 @@ def main():
             try:
                 prompt = f"""Based on the manual pages provided, answer the following question: {question['query']}
 
-Please provide your response in two parts:
+Please provide your response in four parts:
 1. Page Scan: Explain your reasoning process, including which pages you looked at and why. Please exhaustively check every page in the input, and talk about your thoughts about each set of 10 pages. Like, I will first look at 1-10. I see nothing related to my query here. I now processed 11-20, and so on for all of the input. There are {MAX_PAGES} pages in total, don't forget the ones on the end!
-2. Chain of Thought: For the given pages, extract the page contents. If the answer is in a table or diagram, extract the entire table / diagram, so that you can clearly see the data you want to extract.
-3. Error Correction: If you made a mistake, or need to look at a different page, use this space to look at that page and extract data as needed. If no errors are detected, write "No errors detected".
+2. Extraction: For the given pages, extract the page contents. If the answer is in a table or diagram, extract the entire table / diagram, so that you can clearly see the data you want to extract.
+3. Error Correction: If you made a mistake, or need to look at a different page, use this space to look at that page and extract data as needed. If no errors are detected, write "No errors detected", and list the final list of pages that you plan on returning. 
 4. Final Answer: Give the precise answer to the question, as well as the pages referenced (it is possible that the answer is simply pages).
 
-Format your response exactly like this:
-<output-format>
-Chain of Thought:
-[your detailed reasoning here]
+Format your response as follows:
+1. Page Scan:
+[your comprehensive page scan here]
 
-Final Answer:
+2. Extraction:
+[your detailed extraction here]
+
+3. Error Correction:
+[your detailed error correction here]
+
+4. Final Answer
+<final-answer>
 [your precise prose answer here]
+</final-answer>
 <page-references>
 [page numbers here, delimited by commas]
 </page-references>
-</output-format>
 
-Here is an example of chain of thought and a final answer for reference:
-<begin-example>
+Here are two example outputs for your reference, please format your response accordingly:
+<begin-examples>
 {example_1}
-</end-example>
+{example_2}
+</end-examples>
+
 """
 
                 response = model.generate_content(
